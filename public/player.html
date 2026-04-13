@@ -1,41 +1,61 @@
 <!DOCTYPE html>
-<html>
+<html lang="es">
 <head>
-  <title>Audio Player</title>
+  <meta charset="UTF-8" />
+  <title>Player OBS</title>
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: transparent;
+      overflow: hidden;
+    }
+  </style>
 </head>
 <body>
-<script>
-let isPlaying = false;
+  <audio id="audio" autoplay></audio>
 
-async function checkAudio() {
-  try {
-    const res = await fetch("/next-audio");
-    const data = await res.json();
+  <script>
+    const audio = document.getElementById("audio");
+    let isPlaying = false;
 
-    if (data.file && !isPlaying) {
-      isPlaying = true;
+    async function checkNextAudio() {
+      if (isPlaying) return;
 
-      const audio = new Audio("/storage/uploads/" + data.file);
+      try {
+        const res = await fetch("/next-audio");
+        const data = await res.json();
 
-      audio.volume = 1.0;
+        if (data.file) {
+          isPlaying = true;
 
-      audio.play().then(() => {
-        console.log("Reproduciendo:", data.file);
-      }).catch(err => {
-        console.error("Error reproduciendo:", err);
-      });
+          audio.src = "/uploads/" + data.file;
+          audio.volume = 1.0;
 
-      audio.onended = () => {
-        isPlaying = false;
-      };
+          try {
+            await audio.play();
+            console.log("Reproduciendo:", data.file);
+          } catch (err) {
+            console.error("Error reproduciendo audio:", err);
+            isPlaying = false;
+          }
+        }
+      } catch (error) {
+        console.error("Error buscando audio:", error);
+      }
     }
-  } catch (e) {
-    console.error("Error fetching audio:", e);
-  }
-}
 
-// comprobar cada 2 segundos
-setInterval(checkAudio, 2000);
-</script>
+    audio.addEventListener("ended", () => {
+      isPlaying = false;
+      setTimeout(checkNextAudio, 300);
+    });
+
+    audio.addEventListener("error", (e) => {
+      console.error("Error en el elemento audio:", e);
+      isPlaying = false;
+    });
+
+    setInterval(checkNextAudio, 1500);
+  </script>
 </body>
 </html>
