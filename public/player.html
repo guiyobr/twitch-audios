@@ -19,13 +19,16 @@
       display: none;
       pointer-events: none;
       z-index: 9999;
+      background: transparent;
     }
 
     #overlay video {
       width: 100%;
       height: 100%;
       object-fit: contain;
-      background: transparent;
+      background: transparent !important;
+      opacity: 0;
+      transition: opacity 0.08s linear;
     }
   </style>
 </head>
@@ -45,18 +48,32 @@
 
     let isPlaying = false;
 
-    function showOverlay() {
+    function showOverlayContainer() {
       overlay.style.display = "block";
-      anim.pause();
-      anim.currentTime = 0;
-      anim.load();
-      anim.play().catch(err => console.error("Error animación:", err));
     }
 
-    function hideOverlay() {
+    function hideOverlayCompletely() {
       overlay.style.display = "none";
+      anim.style.opacity = "0";
       anim.pause();
-      anim.currentTime = 0;
+      // reset suave, ya oculto para evitar frame negro
+      try {
+        anim.currentTime = 0;
+      } catch {}
+    }
+
+    function startAnimation() {
+      showOverlayContainer();
+      anim.style.opacity = "0";
+      anim.pause();
+
+      try {
+        anim.currentTime = 0;
+      } catch {}
+
+      anim.play().catch(err => {
+        console.error("Error animación:", err);
+      });
     }
 
     async function checkNextAudio() {
@@ -72,7 +89,7 @@
         audio.src = "/uploads/" + data.file;
         audio.volume = 1.0;
 
-        showOverlay();
+        startAnimation();
 
         try {
           await audio.play();
@@ -86,15 +103,25 @@
       }
     }
 
+    // Solo mostramos la animación cuando el video YA está reproduciendo
+    anim.addEventListener("playing", () => {
+      anim.style.opacity = "1";
+    });
+
+    // Si termina la animación antes que el audio, la dejamos visible en el último frame bueno
+    anim.addEventListener("ended", () => {
+      anim.pause();
+    });
+
     audio.addEventListener("ended", () => {
       isPlaying = false;
-      hideOverlay();
+      hideOverlayCompletely();
       setTimeout(checkNextAudio, 300);
     });
 
     audio.addEventListener("error", () => {
       isPlaying = false;
-      hideOverlay();
+      hideOverlayCompletely();
     });
 
     setInterval(checkNextAudio, 1500);
