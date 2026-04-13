@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Enviar audio</title>
+  <style>
+    body {
+      background: #111;
+      color: white;
+      font-family: Arial;
+      text-align: center;
+      padding: 50px;
+    }
+
+    button {
+      padding: 15px;
+      margin: 10px;
+      border-radius: 10px;
+      border: none;
+      cursor: pointer;
+      font-size: 16px;
+    }
+
+    button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    #status {
+      margin-top: 20px;
+      font-size: 22px;
+      font-weight: bold;
+    }
+  </style>
+</head>
+<body>
+
+<h1>Enviar audio al directo 🎤</h1>
+
+<button id="recordBtn" onclick="start()">Grabar</button>
+<button id="stopBtn" onclick="stop()" disabled>Parar</button>
+<button id="sendBtn" onclick="send()" disabled>Enviar</button>
+
+<p id="status">(0:00 / 0:07)</p>
+
+<script>
+let recorder;
+let chunks = [];
+let audioBlob = null;
+let countdownInterval = null;
+let elapsedSeconds = 0;
+let hasSent = false;
+const MAX_SECONDS = 7;
+
+const params = new URLSearchParams(window.location.search);
+const token = params.get("token");
+
+const recordBtn = document.getElementById("recordBtn");
+const stopBtn = document.getElementById("stopBtn");
+const sendBtn = document.getElementById("sendBtn");
+const statusEl = document.getElementById("status");
+
+function formatTime(seconds) {
+  const mins = Math.floor(seconds / 60);
+  const secs = seconds % 60;
+  return `${mins}:${secs.toString().padStart(2, "0")}`;
+}
+
+function updateStatusRecording() {
+  statusEl.innerText = `(${formatTime(elapsedSeconds)} / ${formatTime(MAX_SECONDS)})`;
+}
+
+async function checkToken() {
+  if (!token) {
+    statusEl.innerText = "Enlace inválido";
+    recordBtn.disabled = true;
+    stopBtn.disabled = true;
+    sendBtn.disabled = true;
+    return;
+  }
+
+  try {
+    const res = await fetch(`/check-token?token=${encodeURIComponent(token)}`);
+    const data = await res.json();
+
+    if (!data.valid) {
+      statusEl.innerText = "Este enlace ya no es válido";
+      recordBtn.disabled = true;
+      stopBtn.disabled = true;
+      sendBtn.disabled = true;
+    }
+  } catch (error) {
+    console.error(error);
+    statusEl.innerText = "Error comprobando el enlace";
+    recordBtn.disabled = true;
+    stopBtn.disabled = true;
+    sendBtn.disabled = true;
+  }
+}
+
+async function start() {
+  if (hasSent) return;
+
+  const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  recorder = new MediaRecorder(stream);
+  chunks = [];
+  audioBlob = null;
+  elapsedSeconds = 0;
+
+  recordBtn.disabled = true;
+  stopBtn.disabled = false;
+  sendBtn.disabled = true;
+
+  recorder.ondataavailable = e => chunks.push(e.data);
+
+  recorder.onstop = () => {
+    audioBlob = new Blob(chunks, { type: "audio/webm" });
+    chunks = [];
+
+    clearInterval(countdownInterval);
+    stopBtn.disabled = true;
+
+    if (!hasSent) {
+      sendBtn.disabled = false;
+      recordBtn.disabled = false;
+      statusEl.innerText = "Audio listo para enviar";
+    }
+
+    stream.getTracks().forEach(track => track.stop());
+  };
+
+  recorder.start();
+  updateStatusRecording();
+
+  countdownInterval = setInterval(() => {
+    elapsedSeconds++;
+    updateStatusRecording();
+
+    if (elapsedSeconds >= MAX_SECONDS) {
+      clearInterval(countdownInterval);
+
+      if (recorder && recorder.state === "recording") {
+        recorder.stop();
+        statusEl.innerText = "Tiempo máximo alcanzado";
+      }
+    }
+  }, 1000);
+}
+
+function stop() {
+  if (recorder && recorder.state === "recording") {
+    recorder.stop();
+  }
+
+  clearInterval(countdownInterval);
+  stopBtn.disabled = true;
+}
+
+async function send() {
+  if (!audioBlob || hasSent) return;
+
+  const form = new FormData();
+  form.append("audio", audioBlob);
+  form.append("token", token);
+
+  sendBtn.disabled = true;
+  recordBtn.disabled = true;
+  stopBtn.disabled = true;
+
+  try {
+    const res = await fetch("/upload", {
+      method: "POST",
+      body: form
+    });
+
+    const data = await res.json();
+
+    if (!res.ok || !data.ok) {
+      statusEl.innerText = data.error || "Error al enviar";
+      sendBtn.disabled = false;
+      recordBtn.disabled = false;
+      return;
+    }
+
+    hasSent = true;
+    statusEl.innerText = "¡Audio enviado! Este enlace ya no se puede volver a usar.";
+
+  } catch (error) {
+    console.error(error);
+    statusEl.innerText = "Error al enviar";
+    sendBtn.disabled = false;
+    recordBtn.disabled = false;
+  }
+}
+
+checkToken();
+</script>
+
+</body>
+</html>

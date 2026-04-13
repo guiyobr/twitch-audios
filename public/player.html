@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Player OBS</title>
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: transparent;
+      overflow: hidden;
+    }
+  </style>
+</head>
+<body>
+  <audio id="audio" autoplay></audio>
+
+  <script>
+    const audio = document.getElementById("audio");
+
+    async function checkNextAudio() {
+      try {
+        const res = await fetch("/next");
+        const data = await res.json();
+
+        if (data.file) {
+          audio.src = "/uploads/" + data.file;
+          await audio.play();
+        }
+      } catch (error) {
+        console.error("Error buscando audio:", error);
+      }
+    }
+
+    audio.addEventListener("ended", () => {
+      setTimeout(checkNextAudio, 300);
+    });
+
+    setInterval(() => {
+      if (audio.paused || !audio.src) {
+        checkNextAudio();
+      }
+    }, 1500);
+  </script>
+</body>
+</html>

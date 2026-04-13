@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Test Tokens</title>
+</head>
+<body style="background:#111;color:white;text-align:center;padding:50px;font-family:Arial">
+
+<h1>Generar token de prueba</h1>
+
+<button onclick="crear()">Crear token</button>
+
+<p id="link"></p>
+
+<script>
+async function crear() {
+  const res = await fetch("/create-token", { method: "POST" });
+  const data = await res.json();
+
+  const url = `http://localhost:8787/record.html?token=${data.token}`;
+
+  document.getElementById("link").innerHTML =
+    `<a href="${url}" target="_blank" style="color:cyan">${url}</a>`;
+}
+</script>
+
+</body>
+</html>
