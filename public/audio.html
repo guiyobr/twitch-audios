@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Enviar audio</title>
+</head>
+<body>
+
+<h2>Enviar audio</h2>
+
+<button onclick="login()">Login con Twitch</button>
+
+<div id="status"></div>
+
+<button id="recordBtn">Grabar</button>
+<button id="stopBtn">Parar</button>
+<button id="sendBtn">Enviar</button>
+
+<p id="timer">(0:00 / 0:07)</p>
+
+<script>
+let mediaRecorder;
+let chunks = [];
+let seconds = 0;
+let maxSeconds = 7;
+let interval;
+
+async function login() {
+  window.location.href = "/auth/twitch";
+}
+
+async function checkUser() {
+  const res = await fetch("/me");
+  const data = await res.json();
+
+  if (!data.user) {
+    document.getElementById("status").innerText = "No logeado";
+    return;
+  }
+
+  const canRes = await fetch("/can-send");
+  const canData = await canRes.json();
+
+  if (canData.can) {
+    document.getElementById("status").innerText = "Puedes enviar audio";
+  } else {
+    document.getElementById("status").innerText = "No tienes permiso";
+  }
+}
+
+checkUser();
+
+document.getElementById("recordBtn").onclick = async () => {
+  const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  mediaRecorder = new MediaRecorder(stream);
+
+  mediaRecorder.start();
+  chunks = [];
+  seconds = 0;
+
+  interval = setInterval(() => {
+    seconds++;
+    document.getElementById("timer").innerText =
+      `(0:0${seconds} / 0:07)`;
+
+    if (seconds >= maxSeconds) {
+      mediaRecorder.stop();
+      clearInterval(interval);
+    }
+  }, 1000);
+
+  mediaRecorder.ondataavailable = e => chunks.push(e.data);
+};
+
+document.getElementById("stopBtn").onclick = () => {
+  mediaRecorder.stop();
+  clearInterval(interval);
+};
+
+document.getElementById("sendBtn").onclick = async () => {
+  const blob = new Blob(chunks, { type: "audio/webm" });
+
+  const formData = new FormData();
+  formData.append("audio", blob);
+
+  await fetch("/upload", {
+    method: "POST",
+    body: formData
+  });
+
+  alert("Audio enviado");
+};
+</script>
+
+</body>
+</html>
