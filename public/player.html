@@ -1,14 +1,60 @@
 <!DOCTYPE html>
-<html>
+<html lang="es">
 <head>
+  <meta charset="UTF-8" />
   <title>OBS Audio Player</title>
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: transparent;
+      overflow: hidden;
+      width: 100%;
+      height: 100%;
+    }
+
+    #overlay {
+      position: absolute;
+      inset: 0;
+      display: none;
+      pointer-events: none;
+    }
+
+    #overlay video {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      background: transparent;
+    }
+  </style>
 </head>
 <body>
   <audio id="audio" autoplay></audio>
 
+  <div id="overlay">
+    <video id="anim" muted playsinline preload="auto">
+      <source src="/animacion.webm" type="video/webm">
+    </video>
+  </div>
+
   <script>
     const audio = document.getElementById("audio");
+    const overlay = document.getElementById("overlay");
+    const anim = document.getElementById("anim");
+
     let isPlaying = false;
+
+    function showOverlay() {
+      overlay.style.display = "block";
+      anim.currentTime = 0;
+      anim.play().catch(() => {});
+    }
+
+    function hideOverlay() {
+      overlay.style.display = "none";
+      anim.pause();
+      anim.currentTime = 0;
+    }
 
     async function checkNextAudio() {
       if (isPlaying) return;
@@ -22,6 +68,8 @@
         isPlaying = true;
         audio.src = "/uploads/" + data.file;
         audio.volume = 1.0;
+
+        showOverlay();
 
         try {
           await audio.play();
@@ -37,11 +85,13 @@
 
     audio.addEventListener("ended", () => {
       isPlaying = false;
+      hideOverlay();
       setTimeout(checkNextAudio, 300);
     });
 
     audio.addEventListener("error", () => {
       isPlaying = false;
+      hideOverlay();
     });
 
     setInterval(checkNextAudio, 1500);
