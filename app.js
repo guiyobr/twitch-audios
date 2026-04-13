@@ -1,145 +1,153 @@
 const express = require("express");
 const multer = require("multer");
-const cors = require("cors");
+const session = require("express-session");
+const fetch = require("node-fetch");
 const fs = require("fs");
 const path = require("path");
 
 const app = express();
 const PORT = process.env.PORT || 8787;
 
-app.use(cors());
+// ENV
+const CLIENT_ID = process.env.TWITCH_CLIENT_ID;
+const CLIENT_SECRET = process.env.TWITCH_CLIENT_SECRET;
+const REDIRECT_URI = process.env.TWITCH_REDIRECT_URI;
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Carpetas
+app.use(session({
+  secret: process.env.SESSION_SECRET,
+  resave: false,
+  saveUninitialized: true
+}));
+
+// STORAGE
 const STORAGE = path.join(__dirname, "storage");
 const UPLOADS = path.join(STORAGE, "uploads");
 const DATA = path.join(STORAGE, "data");
 
-// Crear carpetas si no existen
 [STORAGE, UPLOADS, DATA].forEach(dir => {
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 });
 
-// Archivos de datos
+const USERS_FILE = path.join(DATA, "users.json");
 const QUEUE_FILE = path.join(DATA, "queue.json");
-const TOKENS_FILE = path.join(DATA, "tokens.json");
 
-if (!fs.existsSync(QUEUE_FILE)) {
-  fs.writeFileSync(QUEUE_FILE, JSON.stringify([]));
-}
+if (!fs.existsSync(USERS_FILE)) fs.writeFileSync(USERS_FILE, "{}");
+if (!fs.existsSync(QUEUE_FILE)) fs.writeFileSync(QUEUE_FILE, "[]");
 
-if (!fs.existsSync(TOKENS_FILE)) {
-  fs.writeFileSync(TOKENS_FILE, JSON.stringify({}));
-}
-
-// Config subida de archivos
+// MULTER
 const storage = multer.diskStorage({
-  destination: function (req, file, cb) {
-    cb(null, UPLOADS);
-  },
-  filename: function (req, file, cb) {
-    cb(null, Date.now() + ".webm");
-  }
+  destination: (req, file, cb) => cb(null, UPLOADS),
+  filename: (req, file, cb) => cb(null, Date.now() + ".webm")
+});
+const upload = multer({ storage });
+
+// ===== LOGIN TWITCH =====
+app.get("/auth/twitch", (req, res) => {
+  const url = `https://id.twitch.tv/oauth2/authorize?client_id=${CLIENT_ID}&redirect_uri=${REDIRECT_URI}&response_type=code&scope=`;
+  res.redirect(url);
 });
 
-const upload = multer({ storage: storage });
+app.get("/auth/twitch/callback", async (req, res) => {
+  const code = req.query.code;
 
-// Endpoint test
-app.get("/health", (req, res) => {
+  const tokenRes = await fetch("https://id.twitch.tv/oauth2/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: `client_id=${CLIENT_ID}&client_secret=${CLIENT_SECRET}&code=${code}&grant_type=authorization_code&redirect_uri=${REDIRECT_URI}`
+  });
+
+  const tokenData = await tokenRes.json();
+
+  const userRes = await fetch("https://api.twitch.tv/helix/users", {
+    headers: {
+      "Authorization": `Bearer ${tokenData.access_token}`,
+      "Client-Id": CLIENT_ID
+    }
+  });
+
+  const userData = await userRes.json();
+  const user = userData.data[0];
+
+  req.session.user = {
+    login: user.login
+  };
+
+  res.redirect("/audio.html");
+});
+
+// ===== CHECK USER =====
+app.get("/me", (req, res) => {
+  res.json({ user: req.session.user || null });
+});
+
+// ===== PERMISOS =====
+app.post("/grant", (req, res) => {
+  const username = req.body.username;
+
+  let users = JSON.parse(fs.readFileSync(USERS_FILE));
+  users[username] = true;
+
+  fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2));
+
   res.json({ ok: true });
 });
 
-// Crear token único de un solo uso
-app.post("/create-token", (req, res) => {
-  const token =
-    Date.now().toString() + "-" + Math.floor(Math.random() * 1000000).toString();
+app.get("/can-send", (req, res) => {
+  if (!req.session.user) return res.json({ can: false });
 
-  let tokens = JSON.parse(fs.readFileSync(TOKENS_FILE, "utf8"));
+  let users = JSON.parse(fs.readFileSync(USERS_FILE));
+  const can = users[req.session.user.login] || false;
 
-  tokens[token] = {
-    used: false,
-    createdAt: Date.now()
-  };
-
-  fs.writeFileSync(TOKENS_FILE, JSON.stringify(tokens, null, 2));
-
-  res.json({ ok: true, token });
+  res.json({ can });
 });
 
-// Comprobar token
-app.get("/check-token", (req, res) => {
-  const token = req.query.token;
-
-  if (!token) {
-    return res.status(400).json({ valid: false, error: "Token requerido" });
-  }
-
-  let tokens = JSON.parse(fs.readFileSync(TOKENS_FILE, "utf8"));
-  let tokenData = tokens[token];
-
-  if (!tokenData || tokenData.used) {
-    return res.json({ valid: false });
-  }
-
-  res.json({ valid: true });
-});
-
-// Subir audio protegido por token de un solo uso
+// ===== SUBIR AUDIO =====
 app.post("/upload", upload.single("audio"), (req, res) => {
-  const token = req.body.token;
+  if (!req.session.user) return res.status(403).json({ ok: false });
 
-  if (!token) {
-    return res.status(400).json({ ok: false, error: "Token requerido" });
+  let users = JSON.parse(fs.readFileSync(USERS_FILE));
+
+  if (!users[req.session.user.login]) {
+    return res.status(403).json({ ok: false });
   }
 
-  let tokens = JSON.parse(fs.readFileSync(TOKENS_FILE, "utf8"));
-  let tokenData = tokens[token];
-
-  if (!tokenData || tokenData.used) {
-    return res.status(400).json({ ok: false, error: "Token inválido o ya usado" });
-  }
-
-  if (!req.file) {
-    return res.status(400).json({ ok: false, error: "No se recibió ningún audio" });
-  }
-
-  let queue = JSON.parse(fs.readFileSync(QUEUE_FILE, "utf8"));
+  let queue = JSON.parse(fs.readFileSync(QUEUE_FILE));
 
   queue.push({
-    file: req.file.filename
+    file: req.file.filename,
+    user: req.session.user.login
   });
 
   fs.writeFileSync(QUEUE_FILE, JSON.stringify(queue, null, 2));
 
-  tokens[token].used = true;
-  tokens[token].usedAt = Date.now();
-  fs.writeFileSync(TOKENS_FILE, JSON.stringify(tokens, null, 2));
+  // consumir permiso
+  users[req.session.user.login] = false;
+  fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2));
 
   res.json({ ok: true });
 });
 
-// Obtener siguiente audio
-app.get("/next", (req, res) => {
-  let queue = JSON.parse(fs.readFileSync(QUEUE_FILE, "utf8"));
+// ===== PLAYER =====
+app.get("/next-audio", (req, res) => {
+  let queue = JSON.parse(fs.readFileSync(QUEUE_FILE));
 
-  if (queue.length === 0) {
-    return res.json({ file: null });
-  }
+  if (queue.length === 0) return res.json({ file: null });
 
-  let next = queue.shift();
-
+  const next = queue.shift();
   fs.writeFileSync(QUEUE_FILE, JSON.stringify(queue, null, 2));
 
   res.json({ file: next.file });
 });
 
-// Servir audios
-app.use("/uploads", express.static(UPLOADS));
+app.use(express.static("public"));
 
-// Servir página web
-app.use(express.static(path.join(__dirname, "public")));
+app.get("/health", (req, res) => {
+  res.json({ ok: true });
+});
 
 app.listen(PORT, () => {
-  console.log("Servidor funcionando en http://localhost:" + PORT);
+  console.log("Server running on port " + PORT);
 });
