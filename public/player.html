@@ -1,46 +1,41 @@
-<!doctype html>
-<html lang="es">
+<!DOCTYPE html>
+<html>
 <head>
-  <meta charset="UTF-8">
-  <title>Player OBS</title>
-  <style>
-    html, body {
-      margin: 0;
-      padding: 0;
-      background: transparent;
-      overflow: hidden;
-    }
-  </style>
+  <title>Audio Player</title>
 </head>
 <body>
-  <audio id="audio" autoplay></audio>
+<script>
+let isPlaying = false;
 
-  <script>
-    const audio = document.getElementById("audio");
+async function checkAudio() {
+  try {
+    const res = await fetch("/next-audio");
+    const data = await res.json();
 
-    async function checkNextAudio() {
-      try {
-        const res = await fetch("/next");
-        const data = await res.json();
+    if (data.file && !isPlaying) {
+      isPlaying = true;
 
-        if (data.file) {
-          audio.src = "/uploads/" + data.file;
-          await audio.play();
-        }
-      } catch (error) {
-        console.error("Error buscando audio:", error);
-      }
+      const audio = new Audio("/storage/uploads/" + data.file);
+
+      audio.volume = 1.0;
+
+      audio.play().then(() => {
+        console.log("Reproduciendo:", data.file);
+      }).catch(err => {
+        console.error("Error reproduciendo:", err);
+      });
+
+      audio.onended = () => {
+        isPlaying = false;
+      };
     }
+  } catch (e) {
+    console.error("Error fetching audio:", e);
+  }
+}
 
-    audio.addEventListener("ended", () => {
-      setTimeout(checkNextAudio, 300);
-    });
-
-    setInterval(() => {
-      if (audio.paused || !audio.src) {
-        checkNextAudio();
-      }
-    }, 1500);
-  </script>
+// comprobar cada 2 segundos
+setInterval(checkAudio, 2000);
+</script>
 </body>
 </html>
