@@ -51,31 +51,36 @@ app.get("/auth/twitch", (req, res) => {
 });
 
 app.get("/auth/twitch/callback", async (req, res) => {
-  const code = req.query.code;
+  try {
+    const code = req.query.code;
 
-  const tokenRes = await fetch("https://id.twitch.tv/oauth2/token", {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: `client_id=${CLIENT_ID}&client_secret=${CLIENT_SECRET}&code=${code}&grant_type=authorization_code&redirect_uri=${REDIRECT_URI}`
-  });
+    const tokenRes = await fetch("https://id.twitch.tv/oauth2/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: `client_id=${CLIENT_ID}&client_secret=${CLIENT_SECRET}&code=${code}&grant_type=authorization_code&redirect_uri=${REDIRECT_URI}`
+    });
 
-  const tokenData = await tokenRes.json();
+    const tokenData = await tokenRes.json();
 
-  const userRes = await fetch("https://api.twitch.tv/helix/users", {
-    headers: {
-      "Authorization": `Bearer ${tokenData.access_token}`,
-      "Client-Id": CLIENT_ID
-    }
-  });
+    const userRes = await fetch("https://api.twitch.tv/helix/users", {
+      headers: {
+        "Authorization": `Bearer ${tokenData.access_token}`,
+        "Client-Id": CLIENT_ID
+      }
+    });
 
-  const userData = await userRes.json();
-  const user = userData.data[0];
+    const userData = await userRes.json();
+    const user = userData.data[0];
 
-  req.session.user = {
-    login: user.login
-  };
+    req.session.user = {
+      login: user.login
+    };
 
-  res.redirect("/audio.html");
+    res.redirect("/audio.html");
+  } catch (error) {
+    console.error("OAuth callback error:", error);
+    res.status(500).send("Error en el login con Twitch");
+  }
 });
 
 // ===== CHECK USER =====
@@ -84,62 +89,110 @@ app.get("/me", (req, res) => {
 });
 
 // ===== PERMISOS =====
+// POST original
 app.post("/grant", (req, res) => {
-  const username = req.body.username;
+  try {
+    const username = (req.body.username || "").toLowerCase().trim();
 
-  let users = JSON.parse(fs.readFileSync(USERS_FILE));
-  users[username] = true;
+    if (!username) {
+      return res.status(400).json({ ok: false, error: "username requerido" });
+    }
 
-  fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2));
+    let users = JSON.parse(fs.readFileSync(USERS_FILE, "utf8"));
+    users[username] = true;
 
-  res.json({ ok: true });
+    fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2));
+    res.json({ ok: true, username });
+  } catch (error) {
+    console.error("POST /grant error:", error);
+    res.status(500).json({ ok: false, error: "grant failed" });
+  }
+});
+
+// GET nuevo para Streamer.bot Fetch URL
+app.get("/grant", (req, res) => {
+  try {
+    const username = (req.query.username || "").toLowerCase().trim();
+
+    if (!username) {
+      return res.status(400).json({ ok: false, error: "username requerido" });
+    }
+
+    let users = JSON.parse(fs.readFileSync(USERS_FILE, "utf8"));
+    users[username] = true;
+
+    fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2));
+    res.json({ ok: true, username });
+  } catch (error) {
+    console.error("GET /grant error:", error);
+    res.status(500).json({ ok: false, error: "grant failed" });
+  }
 });
 
 app.get("/can-send", (req, res) => {
-  if (!req.session.user) return res.json({ can: false });
+  try {
+    if (!req.session.user) return res.json({ can: false });
 
-  let users = JSON.parse(fs.readFileSync(USERS_FILE));
-  const can = users[req.session.user.login] || false;
+    let users = JSON.parse(fs.readFileSync(USERS_FILE, "utf8"));
+    const can = users[req.session.user.login] || false;
 
-  res.json({ can });
+    res.json({ can });
+  } catch (error) {
+    console.error("/can-send error:", error);
+    res.status(500).json({ can: false });
+  }
 });
 
 // ===== SUBIR AUDIO =====
 app.post("/upload", upload.single("audio"), (req, res) => {
-  if (!req.session.user) return res.status(403).json({ ok: false });
+  try {
+    if (!req.session.user) return res.status(403).json({ ok: false });
 
-  let users = JSON.parse(fs.readFileSync(USERS_FILE));
+    let users = JSON.parse(fs.readFileSync(USERS_FILE, "utf8"));
 
-  if (!users[req.session.user.login]) {
-    return res.status(403).json({ ok: false });
+    if (!users[req.session.user.login]) {
+      return res.status(403).json({ ok: false });
+    }
+
+    if (!req.file) {
+      return res.status(400).json({ ok: false });
+    }
+
+    let queue = JSON.parse(fs.readFileSync(QUEUE_FILE, "utf8"));
+
+    queue.push({
+      file: req.file.filename,
+      user: req.session.user.login
+    });
+
+    fs.writeFileSync(QUEUE_FILE, JSON.stringify(queue, null, 2));
+
+    // consumir permiso
+    users[req.session.user.login] = false;
+    fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2));
+
+    res.json({ ok: true });
+  } catch (error) {
+    console.error("/upload error:", error);
+    res.status(500).json({ ok: false });
   }
-
-  let queue = JSON.parse(fs.readFileSync(QUEUE_FILE));
-
-  queue.push({
-    file: req.file.filename,
-    user: req.session.user.login
-  });
-
-  fs.writeFileSync(QUEUE_FILE, JSON.stringify(queue, null, 2));
-
-  // consumir permiso
-  users[req.session.user.login] = false;
-  fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2));
-
-  res.json({ ok: true });
 });
 
 // ===== PLAYER =====
 app.get("/next-audio", (req, res) => {
-  let queue = JSON.parse(fs.readFileSync(QUEUE_FILE));
+  try {
+    let queue = JSON.parse(fs.readFileSync(QUEUE_FILE, "utf8"));
 
-  if (queue.length === 0) return res.json({ file: null });
+    if (queue.length === 0) return res.json({ file: null });
 
-  const next = queue.shift();
-  fs.writeFileSync(QUEUE_FILE, JSON.stringify(queue, null, 2));
+    const next = queue.shift();
+    fs.writeFileSync(QUEUE_FILE, JSON.stringify(queue, null, 2));
 
-  res.json({ file: next.file });
+    res.json({ file: next.file });
+  } catch (error) {
+    console.error("/next-audio error:", error);
+    res.status(500).json({ file: null });
+  }
 });
 
 app.use(express.static("public"));
