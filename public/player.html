@@ -1,168 +1,46 @@
 <!DOCTYPE html>
-<html lang="es">
+<html>
 <head>
-  <meta charset="UTF-8" />
-  <title>Player Debug</title>
-  <style>
-    body {
-      background: #111;
-      color: white;
-      font-family: Arial, sans-serif;
-      padding: 30px;
-    }
-
-    .box {
-      max-width: 700px;
-      margin: 0 auto;
-      background: #1b1b1b;
-      border-radius: 18px;
-      padding: 24px;
-    }
-
-    h1 {
-      margin-top: 0;
-    }
-
-    #status, #fileUrl, #errorBox {
-      margin-top: 14px;
-      padding: 12px;
-      border-radius: 10px;
-      background: #2a2a2a;
-      word-break: break-word;
-    }
-
-    #errorBox {
-      color: #ff8b8b;
-    }
-
-    button {
-      padding: 12px 18px;
-      border: none;
-      border-radius: 10px;
-      cursor: pointer;
-      font-weight: bold;
-      margin-top: 12px;
-      margin-right: 8px;
-    }
-
-    .btn {
-      background: #4da3ff;
-      color: white;
-    }
-
-    .btn2 {
-      background: #25c281;
-      color: white;
-    }
-  </style>
+  <title>OBS Audio Player</title>
 </head>
 <body>
-  <div class="box">
-    <h1>Player Debug 🎧</h1>
-    <p>Esto es solo para probar por qué no está sonando.</p>
-
-    <button class="btn" onclick="activarAudio()">Activar audio</button>
-    <button class="btn2" onclick="checkNextAudio()">Buscar audio ahora</button>
-
-    <div id="status">Estado: esperando…</div>
-    <div id="fileUrl">Archivo: ninguno</div>
-    <div id="errorBox">Errores: ninguno</div>
-
-    <audio id="audio" controls></audio>
-  </div>
+  <audio id="audio" autoplay></audio>
 
   <script>
     const audio = document.getElementById("audio");
-    const statusEl = document.getElementById("status");
-    const fileUrlEl = document.getElementById("fileUrl");
-    const errorBoxEl = document.getElementById("errorBox");
-
     let isPlaying = false;
-    let audioActivado = false;
-
-    function setStatus(text) {
-      statusEl.innerText = "Estado: " + text;
-    }
-
-    function setFileUrl(text) {
-      fileUrlEl.innerText = "Archivo: " + text;
-    }
-
-    function setError(text) {
-      errorBoxEl.innerText = "Errores: " + text;
-    }
-
-    async function activarAudio() {
-      try {
-        audio.muted = false;
-        audio.volume = 1.0;
-        audioActivado = true;
-        setStatus("audio activado manualmente");
-        setError("ninguno");
-      } catch (err) {
-        setError(err.message);
-      }
-    }
 
     async function checkNextAudio() {
       if (isPlaying) return;
 
       try {
-        setStatus("consultando /next-audio...");
         const res = await fetch("/next-audio");
         const data = await res.json();
 
-        console.log("Respuesta /next-audio:", data);
-
-        if (!data.file) {
-          setStatus("no hay audio en cola");
-          setFileUrl("ninguno");
-          return;
-        }
-
-        const url = "/uploads/" + data.file;
-        setFileUrl(url);
-        setStatus("audio encontrado, intentando reproducir...");
+        if (!data.file) return;
 
         isPlaying = true;
-        audio.src = url;
-        audio.load();
 
-        if (!audioActivado) {
-          setStatus("hay audio, pero primero pulsa 'Activar audio'");
-          isPlaying = false;
-          return;
-        }
+        audio.src = "/uploads/" + data.file;
+        audio.volume = 1.0;
 
         try {
           await audio.play();
-          setStatus("reproduciendo " + data.file);
-          setError("ninguno");
         } catch (err) {
-          console.error("Error al reproducir:", err);
-          setError(err.message || "error al reproducir");
-          setStatus("falló la reproducción");
-          isPlaying = false;
+          console.log("Autoplay bloqueado, reintentando...");
+          setTimeout(() => {
+            audio.play().catch(() => {});
+          }, 500);
         }
 
       } catch (err) {
-        console.error("Error general:", err);
-        setError(err.message || "error general");
-        setStatus("error consultando /next-audio");
-        isPlaying = false;
+        console.error(err);
       }
     }
 
     audio.addEventListener("ended", () => {
       isPlaying = false;
-      setStatus("audio terminado");
       setTimeout(checkNextAudio, 300);
-    });
-
-    audio.addEventListener("error", () => {
-      setError("el navegador no pudo cargar el archivo de audio");
-      setStatus("error en el elemento audio");
-      isPlaying = false;
     });
 
     setInterval(checkNextAudio, 1500);
