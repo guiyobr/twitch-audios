@@ -20,19 +20,16 @@
         if (!data.file) return;
 
         isPlaying = true;
-
         audio.src = "/uploads/" + data.file;
         audio.volume = 1.0;
 
         try {
           await audio.play();
         } catch (err) {
-          console.log("Autoplay bloqueado, reintentando...");
           setTimeout(() => {
             audio.play().catch(() => {});
           }, 500);
         }
-
       } catch (err) {
         console.error(err);
       }
@@ -41,6 +38,10 @@
     audio.addEventListener("ended", () => {
       isPlaying = false;
       setTimeout(checkNextAudio, 300);
+    });
+
+    audio.addEventListener("error", () => {
+      isPlaying = false;
     });
 
     setInterval(checkNextAudio, 1500);
