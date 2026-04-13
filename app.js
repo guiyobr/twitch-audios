@@ -44,6 +44,19 @@ const storage = multer.diskStorage({
 });
 const upload = multer({ storage });
 
+// HELPERS
+function readJson(file, fallback) {
+  try {
+    return JSON.parse(fs.readFileSync(file, "utf8"));
+  } catch {
+    return fallback;
+  }
+}
+
+function writeJson(file, data) {
+  fs.writeFileSync(file, JSON.stringify(data, null, 2));
+}
+
 // ===== LOGIN TWITCH =====
 app.get("/auth/twitch", (req, res) => {
   const url =
@@ -105,10 +118,10 @@ app.post("/grant", (req, res) => {
       return res.status(400).json({ ok: false, error: "username requerido" });
     }
 
-    let users = JSON.parse(fs.readFileSync(USERS_FILE, "utf8"));
+    const users = readJson(USERS_FILE, {});
     users[username] = true;
+    writeJson(USERS_FILE, users);
 
-    fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2));
     res.json({ ok: true, username });
   } catch (error) {
     console.error("POST /grant error:", error);
@@ -116,7 +129,6 @@ app.post("/grant", (req, res) => {
   }
 });
 
-// GET para Streamer.bot Fetch URL
 app.get("/grant", (req, res) => {
   try {
     const username = (req.query.username || "").toLowerCase().trim();
@@ -125,10 +137,10 @@ app.get("/grant", (req, res) => {
       return res.status(400).json({ ok: false, error: "username requerido" });
     }
 
-    let users = JSON.parse(fs.readFileSync(USERS_FILE, "utf8"));
+    const users = readJson(USERS_FILE, {});
     users[username] = true;
+    writeJson(USERS_FILE, users);
 
-    fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2));
     res.json({ ok: true, username });
   } catch (error) {
     console.error("GET /grant error:", error);
@@ -140,7 +152,7 @@ app.get("/can-send", (req, res) => {
   try {
     if (!req.session.user) return res.json({ can: false });
 
-    let users = JSON.parse(fs.readFileSync(USERS_FILE, "utf8"));
+    const users = readJson(USERS_FILE, {});
     const can = users[req.session.user.login] || false;
 
     res.json({ can });
@@ -157,7 +169,7 @@ app.post("/upload", upload.single("audio"), (req, res) => {
       return res.status(403).json({ ok: false, error: "No logeado" });
     }
 
-    let users = JSON.parse(fs.readFileSync(USERS_FILE, "utf8"));
+    const users = readJson(USERS_FILE, {});
 
     if (!users[req.session.user.login]) {
       return res.status(403).json({ ok: false, error: "Sin permiso" });
@@ -167,18 +179,15 @@ app.post("/upload", upload.single("audio"), (req, res) => {
       return res.status(400).json({ ok: false, error: "No se recibió audio" });
     }
 
-    let queue = JSON.parse(fs.readFileSync(QUEUE_FILE, "utf8"));
-
+    const queue = readJson(QUEUE_FILE, []);
     queue.push({
       file: req.file.filename,
       user: req.session.user.login
     });
+    writeJson(QUEUE_FILE, queue);
 
-    fs.writeFileSync(QUEUE_FILE, JSON.stringify(queue, null, 2));
-
-    // Consumir permiso
     users[req.session.user.login] = false;
-    fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2));
+    writeJson(USERS_FILE, users);
 
     res.json({ ok: true });
   } catch (error) {
@@ -190,14 +199,33 @@ app.post("/upload", upload.single("audio"), (req, res) => {
 // ===== PLAYER =====
 app.get("/next-audio", (req, res) => {
   try {
-    let queue = JSON.parse(fs.readFileSync(QUEUE_FILE, "utf8"));
+    const queue = readJson(QUEUE_FILE, []);
 
     if (queue.length === 0) {
       return res.json({ file: null });
     }
 
     const next = queue.shift();
-    fs.writeFileSync(QUEUE_FILE, JSON.stringify(queue, null, 2));
+    writeJson(QUEUE_FILE, queue);
+
+    const filePath = path.join(UPLOADS, next.file);
+
+    if (!fs.existsSync(filePath)) {
+      console.warn("Archivo no encontrado al reproducir:", next.file);
+      return res.json({ file: null });
+    }
+
+    // Borrado automático del archivo tras un pequeño margen
+    // para que el navegador/OBS tenga tiempo de empezar a leerlo.
+    setTimeout(() => {
+      fs.unlink(filePath, (err) => {
+        if (err) {
+          console.error("Error borrando audio:", next.file, err.message);
+        } else {
+          console.log("Audio borrado automáticamente:", next.file);
+        }
+      });
+    }, 30000);
 
     res.json({ file: next.file });
   } catch (error) {
@@ -206,7 +234,7 @@ app.get("/next-audio", (req, res) => {
   }
 });
 
-// IMPORTANTE: servir los audios subidos
+// Servir audios subidos
 app.use("/uploads", express.static(UPLOADS));
 
 // Archivos públicos
