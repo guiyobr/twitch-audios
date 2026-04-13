@@ -5,7 +5,7 @@ const fs = require("fs");
 const path = require("path");
 
 const app = express();
-const PORT = 8787;
+const PORT = process.env.PORT || 8787;
 
 app.use(cors());
 app.use(express.json());
