@@ -46,7 +46,10 @@ const upload = multer({ storage });
 
 // ===== LOGIN TWITCH =====
 app.get("/auth/twitch", (req, res) => {
-  const url = `https://id.twitch.tv/oauth2/authorize?client_id=${CLIENT_ID}&redirect_uri=${REDIRECT_URI}&response_type=code&scope=`;
+  const url =
+    `https://id.twitch.tv/oauth2/authorize?client_id=${CLIENT_ID}` +
+    `&redirect_uri=${encodeURIComponent(REDIRECT_URI)}` +
+    `&response_type=code&scope=`;
   res.redirect(url);
 });
 
@@ -57,7 +60,12 @@ app.get("/auth/twitch/callback", async (req, res) => {
     const tokenRes = await fetch("https://id.twitch.tv/oauth2/token", {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: `client_id=${CLIENT_ID}&client_secret=${CLIENT_SECRET}&code=${code}&grant_type=authorization_code&redirect_uri=${REDIRECT_URI}`
+      body:
+        `client_id=${CLIENT_ID}` +
+        `&client_secret=${CLIENT_SECRET}` +
+        `&code=${code}` +
+        `&grant_type=authorization_code` +
+        `&redirect_uri=${encodeURIComponent(REDIRECT_URI)}`
     });
 
     const tokenData = await tokenRes.json();
@@ -89,7 +97,6 @@ app.get("/me", (req, res) => {
 });
 
 // ===== PERMISOS =====
-// POST original
 app.post("/grant", (req, res) => {
   try {
     const username = (req.body.username || "").toLowerCase().trim();
@@ -109,7 +116,7 @@ app.post("/grant", (req, res) => {
   }
 });
 
-// GET nuevo para Streamer.bot Fetch URL
+// GET para Streamer.bot Fetch URL
 app.get("/grant", (req, res) => {
   try {
     const username = (req.query.username || "").toLowerCase().trim();
@@ -146,16 +153,18 @@ app.get("/can-send", (req, res) => {
 // ===== SUBIR AUDIO =====
 app.post("/upload", upload.single("audio"), (req, res) => {
   try {
-    if (!req.session.user) return res.status(403).json({ ok: false });
+    if (!req.session.user) {
+      return res.status(403).json({ ok: false, error: "No logeado" });
+    }
 
     let users = JSON.parse(fs.readFileSync(USERS_FILE, "utf8"));
 
     if (!users[req.session.user.login]) {
-      return res.status(403).json({ ok: false });
+      return res.status(403).json({ ok: false, error: "Sin permiso" });
     }
 
     if (!req.file) {
-      return res.status(400).json({ ok: false });
+      return res.status(400).json({ ok: false, error: "No se recibió audio" });
     }
 
     let queue = JSON.parse(fs.readFileSync(QUEUE_FILE, "utf8"));
@@ -167,14 +176,14 @@ app.post("/upload", upload.single("audio"), (req, res) => {
 
     fs.writeFileSync(QUEUE_FILE, JSON.stringify(queue, null, 2));
 
-    // consumir permiso
+    // Consumir permiso
     users[req.session.user.login] = false;
     fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2));
 
     res.json({ ok: true });
   } catch (error) {
     console.error("/upload error:", error);
-    res.status(500).json({ ok: false });
+    res.status(500).json({ ok: false, error: "Upload failed" });
   }
 });
 
@@ -183,7 +192,9 @@ app.get("/next-audio", (req, res) => {
   try {
     let queue = JSON.parse(fs.readFileSync(QUEUE_FILE, "utf8"));
 
-    if (queue.length === 0) return res.json({ file: null });
+    if (queue.length === 0) {
+      return res.json({ file: null });
+    }
 
     const next = queue.shift();
     fs.writeFileSync(QUEUE_FILE, JSON.stringify(queue, null, 2));
@@ -195,6 +206,10 @@ app.get("/next-audio", (req, res) => {
   }
 });
 
+// IMPORTANTE: servir los audios subidos
+app.use("/uploads", express.static(UPLOADS));
+
+// Archivos públicos
 app.use(express.static("public"));
 
 app.get("/health", (req, res) => {
