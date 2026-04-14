@@ -24,7 +24,7 @@
 
     .card {
       width: 100%;
-      max-width: 560px;
+      max-width: 620px;
       background: rgba(255, 255, 255, 0.08);
       border: 1px solid rgba(255, 255, 255, 0.10);
       border-radius: 24px;
@@ -41,10 +41,31 @@
     }
 
     .subtitle {
-      margin: 0 0 24px;
+      margin: 0 0 20px;
       text-align: center;
       color: rgba(255, 255, 255, 0.78);
       font-size: 16px;
+    }
+
+    .warning-box {
+      margin: 0 0 22px;
+      padding: 16px 18px;
+      border-radius: 16px;
+      background: rgba(255, 184, 77, 0.12);
+      border: 1px solid rgba(255, 184, 77, 0.35);
+      color: #ffe2b3;
+      line-height: 1.5;
+    }
+
+    .warning-title {
+      font-size: 16px;
+      font-weight: 800;
+      margin-bottom: 8px;
+    }
+
+    .warning-text {
+      font-size: 14px;
+      color: rgba(255, 240, 220, 0.95);
     }
 
     .status {
@@ -153,6 +174,13 @@
   <div class="card">
     <h1 class="title">Enviar audio 🎤</h1>
     <p class="subtitle">Máximo 7 segundos. Solo podrás enviar un audio si tienes permiso.</p>
+
+    <div class="warning-box">
+      <div class="warning-title">⚠️ Aviso importante</div>
+      <div class="warning-text">
+        Está prohibido enviar comentarios racistas, insultos graves, spam, amenazas, acoso o cualquier mensaje que busque humillar, dañar o atacar a otra persona. Si envías algo así, será instantáneamente sancionado con baneo permanente del canal.
+      </div>
+    </div>
 
     <div id="status" class="status warn">Comprobando sesión...</div>
 
